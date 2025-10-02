@@ -39,14 +39,14 @@ public class TgChat {
         final SendMessage request = new SendMessage(chatId, message);
         request.parseMode(ParseMode.MarkdownV2);
         request.replyMarkup(markup);
-        request.disableWebPagePreview(true);
+//        request.disableWebPagePreview(true);
         return tgBot.sendRequest(request);
     }
 
     public void sendMessage(String message) {
         final SendMessage request = new SendMessage(chatId, message);
         request.parseMode(ParseMode.MarkdownV2);
-        request.disableWebPagePreview(true);
+//        request.disableWebPagePreview(true);
         tgBot.sendRequest(request);
     }
 
@@ -58,7 +58,7 @@ public class TgChat {
         final SendMessage request = new SendMessage(chatId, message);
         request.replyMarkup(markup);
         request.parseMode(ParseMode.MarkdownV2);
-        request.disableWebPagePreview(true);
+//        request.disableWebPagePreview(true);
         tgBot.sendRequest(request);
     }
 
@@ -89,16 +89,16 @@ public class TgChat {
     }
 
     public void sendInvoice(Invoice invoice) {
-        final var rq = new SendInvoice(chatId, invoice.title, invoice.description,
-                invoice.payload, invoice.providerToken, invoice.currency, invoice.prices.toArray(LabeledPrice[]::new));
-        rq.startParameter("start"); // TODO It works weird but at least nobody lose money
-
-        tgBot.sendRequest(rq);
+//        final var rq = new SendInvoice(chatId, invoice.title, invoice.description,
+//                invoice.payload, invoice.providerToken, invoice.currency, invoice.prices.toArray(LabeledPrice[]::new));
+//        rq.startParameter("start"); // TODO It works weird but at least nobody lose money
+//
+//        tgBot.sendRequest(rq);
     }
 
     protected void editMessage(Integer msgId, String message, InlineKeyboardMarkup markup) {
         final EditMessageText request = new EditMessageText(chatId, msgId, message);
-        request.disableWebPagePreview(true);
+//        request.disableWebPagePreview(true);
         request.parseMode(ParseMode.MarkdownV2);
         if (markup != null) {
             request.replyMarkup(markup);
