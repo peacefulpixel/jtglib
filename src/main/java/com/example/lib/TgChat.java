@@ -135,12 +135,12 @@ public class TgChat {
         tgBot.sendRequest(request);
     }
 
-    public synchronized void handleInput(String msg) {
+    public synchronized void handleInput(InputHandler.MessageInfo messageInfo, String msg) {
         final InputHandler nextHandler;
         if (inputHandler == null) {
-            nextHandler = tgBot.getDefaultInputHandler().handleInput(this, msg);
+            nextHandler = InputHandler.handle(tgBot.getDefaultInputHandler(), this, msg, messageInfo);
         } else {
-            nextHandler = inputHandler.handleInput(this, msg);
+            nextHandler = InputHandler.handle(inputHandler, this, msg, messageInfo);
         }
 
         inputHandler = nextHandler;

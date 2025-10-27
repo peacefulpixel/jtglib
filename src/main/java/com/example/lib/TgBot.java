@@ -7,6 +7,8 @@ import com.pengrad.telegrambot.TelegramBot;
 import com.pengrad.telegrambot.UpdatesListener;
 import com.pengrad.telegrambot.model.*;
 import com.pengrad.telegrambot.model.message.MaybeInaccessibleMessage;
+import com.pengrad.telegrambot.model.message.origin.MessageOriginChannel;
+import com.pengrad.telegrambot.model.message.origin.MessageOriginChat;
 import com.pengrad.telegrambot.model.request.ReplyKeyboardRemove;
 import com.pengrad.telegrambot.request.AnswerCallbackQuery;
 import com.pengrad.telegrambot.request.BaseRequest;
@@ -230,7 +232,9 @@ public class TgBot {
                     successfulPayment.providerPaymentChargeId());
         }
 
-        if (message.text() == null) {
+        final var msgInfo = extractMessageInfo(message);
+
+        if (message.text() == null && !msgInfo.isForward()) {
             if (successfulPayment == null)
                 chat.sendLocalizedMessage("core.notTextError");
 
@@ -238,12 +242,24 @@ public class TgBot {
         }
 
         try {
-            chat.handleInput(message.text());
+            chat.handleInput(extractMessageInfo(message), message.text());
         } catch (Throwable t) {
             if (onUpdateHandleError != null) {
                 onUpdateHandleError.accept(chat, t);
             }
         }
+    }
+
+    private InputHandler.MessageInfo extractMessageInfo(Message message) {
+        final var origin = message.forwardOrigin();
+
+        if (origin instanceof MessageOriginChat chat)
+            return new InputHandler.MessageInfo(true, chat.senderChat().id());
+
+        if (origin instanceof MessageOriginChannel channel)
+            return new InputHandler.MessageInfo(true, channel.chat().id());
+
+        return new InputHandler.MessageInfo(false, null);
     }
 
     private void processMessage(CallbackQuery callbackQuery) {
