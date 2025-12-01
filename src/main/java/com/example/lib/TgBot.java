@@ -12,6 +12,7 @@ import com.pengrad.telegrambot.model.message.origin.MessageOriginChat;
 import com.pengrad.telegrambot.model.request.ReplyKeyboardRemove;
 import com.pengrad.telegrambot.request.AnswerCallbackQuery;
 import com.pengrad.telegrambot.request.BaseRequest;
+import com.pengrad.telegrambot.request.GetUpdates;
 import com.pengrad.telegrambot.response.BaseResponse;
 import org.apache.commons.lang3.function.TriConsumer;
 import org.jetbrains.annotations.NotNull;
@@ -23,10 +24,7 @@ import org.slf4j.LoggerFactory;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -47,6 +45,8 @@ public class TgBot {
     private BiConsumer<Long, Checkout> onCheckout;
     private TriConsumer<Long, CheckoutInfo, String> onSuccessfulCheckout;
     private BiConsumer<TgChat, Throwable> onUpdateHandleError;
+    private Consumer<ChatMemberUpdated> onChatMemberUpdated;
+    private Consumer<ChatJoinRequest> onChatJoinRequest;
 
     public TgBot(String apiKey) {
         telegramBot = new TelegramBot(apiKey);
@@ -88,11 +88,30 @@ public class TgBot {
         this.onSuccessfulCheckout = onSuccessfulCheckout;
     }
 
+    public void setOnChatMemberUpdated(Consumer<ChatMemberUpdated> onChatMemberUpdated) {
+        this.onChatMemberUpdated = onChatMemberUpdated;
+    }
+
+    public void setOnChatJoinRequest(Consumer<ChatJoinRequest> onChatJoinRequest) {
+        this.onChatJoinRequest = onChatJoinRequest;
+    }
+
     public void startListen() {
+        final var updateList = new ArrayList<>(List.of("message", "callback_query", "pre_checkout_query"));
+
+        if (onChatMemberUpdated != null)
+            updateList.add("chat_member");
+
+        if (onChatJoinRequest != null)
+            updateList.add("chat_join_request");
+
+        final var rq = new GetUpdates();
+        rq.allowedUpdates(updateList.toArray(new String[]{}));
+
         telegramBot.setUpdatesListener(updates -> {
             processUpdatesNoThrow(updates);
             return UpdatesListener.CONFIRMED_UPDATES_ALL;
-        });
+        }, rq);
     }
 
     public <T extends BaseResponse> T sendRequest(BaseRequest<?, T> request) {
@@ -178,6 +197,14 @@ public class TgBot {
 
         if (update.callbackQuery() != null) {
             processMessage(update.callbackQuery());
+        }
+
+        if (update.chatMember() != null && onChatMemberUpdated != null) {
+            onChatMemberUpdated.accept(update.chatMember());
+        }
+
+        if (update.chatJoinRequest() != null && onChatJoinRequest != null) {
+            onChatJoinRequest.accept(update.chatJoinRequest());
         }
     }
 
