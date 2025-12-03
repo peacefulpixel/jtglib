@@ -7,12 +7,15 @@ import com.pengrad.telegrambot.TelegramBot;
 import com.pengrad.telegrambot.UpdatesListener;
 import com.pengrad.telegrambot.model.*;
 import com.pengrad.telegrambot.model.message.MaybeInaccessibleMessage;
+import com.pengrad.telegrambot.model.MessageEntity;
 import com.pengrad.telegrambot.model.message.origin.MessageOriginChannel;
 import com.pengrad.telegrambot.model.message.origin.MessageOriginChat;
 import com.pengrad.telegrambot.model.request.ReplyKeyboardRemove;
 import com.pengrad.telegrambot.request.AnswerCallbackQuery;
 import com.pengrad.telegrambot.request.BaseRequest;
 import com.pengrad.telegrambot.request.GetUpdates;
+import com.pengrad.telegrambot.request.GetFile;
+import com.pengrad.telegrambot.response.GetFileResponse;
 import com.pengrad.telegrambot.response.BaseResponse;
 import org.apache.commons.lang3.function.TriConsumer;
 import org.jetbrains.annotations.NotNull;
@@ -21,6 +24,7 @@ import org.reflections.scanners.Scanners;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
@@ -28,6 +32,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 import static com.example.lib.menu.CallbackReference.TAG_PAYLOAD_SPLIT_STRING;
 
@@ -260,8 +265,9 @@ public class TgBot {
         }
 
         final var msgInfo = extractMessageInfo(message);
+        final var inputText = formatWithEntities(message);
 
-        if (message.text() == null && !msgInfo.isForward()) {
+        if (inputText.isEmpty() && (msgInfo.attachments() == null || msgInfo.attachments().isEmpty()) && !msgInfo.isForward()) {
             if (successfulPayment == null)
                 chat.sendLocalizedMessage("core.notTextError");
 
@@ -269,7 +275,7 @@ public class TgBot {
         }
 
         try {
-            chat.handleInput(extractMessageInfo(message), message.text());
+            chat.handleInput(msgInfo, inputText);
         } catch (Throwable t) {
             if (onUpdateHandleError != null) {
                 onUpdateHandleError.accept(chat, t);
@@ -278,15 +284,171 @@ public class TgBot {
     }
 
     private InputHandler.MessageInfo extractMessageInfo(Message message) {
+        final var attachments = extractAttachments(message);
         final var origin = message.forwardOrigin();
 
         if (origin instanceof MessageOriginChat chat)
-            return new InputHandler.MessageInfo(true, chat.senderChat().id());
+            return new InputHandler.MessageInfo(true, chat.senderChat().id(), attachments);
 
         if (origin instanceof MessageOriginChannel channel)
-            return new InputHandler.MessageInfo(true, channel.chat().id());
+            return new InputHandler.MessageInfo(true, channel.chat().id(), attachments);
 
-        return new InputHandler.MessageInfo(false, null);
+        return new InputHandler.MessageInfo(false, null, attachments);
+    }
+
+    private List<InputHandler.Attachment> extractAttachments(Message message) {
+        final var list = new ArrayList<InputHandler.Attachment>();
+
+        if (message.animation() != null) {
+            final var data = downloadFile(message.animation().fileId());
+            list.add(new InputHandler.Attachment(false, true, data, mimeFromPath(message.animation().fileName())));
+            return list;
+        }
+
+        if (message.video() != null) {
+            final var data = downloadFile(message.video().fileId());
+            list.add(new InputHandler.Attachment(true, false, data, mimeFromPath(message.video().fileName())));
+            return list;
+        }
+
+        if (message.photo() != null && message.photo().length > 0) {
+            final var sizes = message.photo();
+            final var best = sizes[sizes.length - 1];
+            final var data = downloadFile(best.fileId());
+            list.add(new InputHandler.Attachment(false, false, data, mimeFromPath(best.fileId())));
+            return list;
+        }
+
+        if (message.document() != null && message.document().mimeType() != null &&
+                message.document().mimeType().startsWith("image")) {
+            final var data = downloadFile(message.document().fileId());
+            list.add(new InputHandler.Attachment(false, false, data, message.document().mimeType()));
+        }
+
+        return list;
+    }
+
+    private byte[] downloadFile(String fileId) {
+        final GetFileResponse rs = telegramBot.execute(new GetFile(fileId));
+        final var file = rs.file();
+        try {
+            return telegramBot.getFileContent(file);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private String mimeFromPath(String path) {
+        if (path == null) return "application/octet-stream";
+        final var lower = path.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".gif")) return "image/gif";
+        if (lower.endsWith(".webp")) return "image/webp";
+        if (lower.endsWith(".png")) return "image/png";
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+        if (lower.endsWith(".mp4")) return "video/mp4";
+        return "application/octet-stream";
+    }
+
+    private String formatWithEntities(Message message) {
+        final var text = message.text() != null ? message.text() :
+                (message.caption() != null ? message.caption() : "");
+        if (text == null)
+            return "";
+
+        final var entities = message.entities() != null ? message.entities() : message.captionEntities();
+        if (entities == null || entities.length == 0)
+            return escapeHtml(text);
+
+        final var events = new TreeMap<Integer, Boundary>();
+        for (MessageEntity e : entities) {
+            final int start = Math.min(e.offset(), text.length());
+            final int end = Math.min(e.offset() + e.length(), text.length());
+            events.computeIfAbsent(start, __ -> new Boundary()).starts.add(e);
+            events.computeIfAbsent(end, __ -> new Boundary()).ends.add(e);
+        }
+
+        final var sb = new StringBuilder();
+        final var stack = new ArrayList<MessageEntity>();
+        int cursor = 0;
+        for (var entry : events.entrySet()) {
+            final int pos = entry.getKey();
+            if (cursor < pos) {
+                sb.append(escapeHtml(text.substring(cursor, pos)));
+            }
+
+            // Close entities that end here (from inner to outer)
+            final var toClose = entry.getValue().ends;
+            if (!toClose.isEmpty()) {
+                final var closeSet = new HashSet<>(toClose);
+                for (int i = stack.size() - 1; i >= 0; i--) {
+                    if (closeSet.contains(stack.get(i))) {
+                        sb.append(closeTag(stack.remove(i)));
+                    }
+                }
+            }
+
+            // Open entities that start here (outer first -> longer first)
+            final var toOpen = entry.getValue().starts.stream()
+                    .sorted(Comparator.<MessageEntity>comparingInt(e -> e.length()).reversed())
+                    .toList();
+            for (MessageEntity e : toOpen) {
+                stack.add(e);
+                sb.append(openTag(e));
+            }
+
+            cursor = pos;
+        }
+
+        if (cursor < text.length()) {
+            sb.append(escapeHtml(text.substring(cursor)));
+        }
+
+        // Close any remaining entities
+        for (int i = stack.size() - 1; i >= 0; i--) {
+            sb.append(closeTag(stack.get(i)));
+        }
+
+        return sb.toString();
+    }
+
+    private String openTag(MessageEntity e) {
+        return switch (e.type()) {
+            case bold -> "<b>";
+            case italic -> "<i>";
+            case underline -> "<u>";
+            case strikethrough -> "<s>";
+            case spoiler -> "<span class=\"tg-spoiler\">";
+            case code -> "<code>";
+            case pre -> "<pre>";
+            case text_link -> "<a href=\"" + escapeHtml(e.url()) + "\">";
+            default -> "";
+        };
+    }
+
+    private String closeTag(MessageEntity e) {
+        return switch (e.type()) {
+            case bold -> "</b>";
+            case italic -> "</i>";
+            case underline -> "</u>";
+            case strikethrough -> "</s>";
+            case spoiler -> "</span>";
+            case code -> "</code>";
+            case pre -> "</pre>";
+            case text_link -> "</a>";
+            default -> "";
+        };
+    }
+
+    private String escapeHtml(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;");
+    }
+
+    private static class Boundary {
+        List<MessageEntity> starts = new ArrayList<>();
+        List<MessageEntity> ends = new ArrayList<>();
     }
 
     private void processMessage(CallbackQuery callbackQuery) {

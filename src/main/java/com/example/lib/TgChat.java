@@ -96,7 +96,7 @@ public class TgChat {
 //        tgBot.sendRequest(rq);
     }
 
-    protected void editMessage(Integer msgId, String message, InlineKeyboardMarkup markup) {
+    public void editMessage(Integer msgId, String message, InlineKeyboardMarkup markup) {
         final EditMessageText request = new EditMessageText(chatId, msgId, message);
 //        request.disableWebPagePreview(true);
         request.parseMode(ParseMode.MarkdownV2);
