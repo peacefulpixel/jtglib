@@ -285,15 +285,17 @@ public class TgBot {
 
     private InputHandler.MessageInfo extractMessageInfo(Message message) {
         final var attachments = extractAttachments(message);
+        final var msgId = message.messageId();
+        final var mgId = message.mediaGroupId();
         final var origin = message.forwardOrigin();
 
         if (origin instanceof MessageOriginChat chat)
-            return new InputHandler.MessageInfo(true, chat.senderChat().id(), attachments);
+            return new InputHandler.MessageInfo(true, chat.senderChat().id(), attachments, msgId, mgId);
 
         if (origin instanceof MessageOriginChannel channel)
-            return new InputHandler.MessageInfo(true, channel.chat().id(), attachments);
+            return new InputHandler.MessageInfo(true, channel.chat().id(), attachments, msgId, mgId);
 
-        return new InputHandler.MessageInfo(false, null, attachments);
+        return new InputHandler.MessageInfo(false, null, attachments, msgId, mgId);
     }
 
     private List<InputHandler.Attachment> extractAttachments(Message message) {
@@ -477,7 +479,8 @@ public class TgBot {
             sendRequest(new AnswerCallbackQuery(callbackQuery.id()));
         }  catch (Throwable t) {
             if (onUpdateHandleError != null) {
-                onUpdateHandleError.accept(chat, t);
+                onUpdateHandleError.accept(chat,
+                        new RuntimeException("Unable to handle callback data: " + callbackQuery.data(), t));
             }
         }
     }

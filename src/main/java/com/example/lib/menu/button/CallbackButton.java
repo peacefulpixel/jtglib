@@ -20,6 +20,10 @@ public class CallbackButton<T extends CallbackReference> extends MenuButton {
                 );
     }
 
+    public InlineKeyboardButton quickInline() {
+        return getInlineKeyboardButton(null);
+    }
+
     public static CallbackButton<CallbackReference> simple(String title, String tag) {
         return new CallbackButton<>(title, new CallbackReference(tag));
     }

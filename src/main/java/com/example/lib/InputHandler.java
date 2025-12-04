@@ -19,7 +19,13 @@ public interface InputHandler {
         InputHandler handleInput(TgChat chat, MessageInfo messageInfo, String input);
     }
 
-    record MessageInfo(boolean isForward, Long forwardChatId, java.util.List<Attachment> attachments) { }
+    record MessageInfo(
+            boolean isForward,
+            Long forwardChatId,
+            java.util.List<Attachment> attachments,
+            Integer originalMessageId,
+            String mediaGroupId
+    ) { }
 
     record Attachment(boolean isVideo, boolean isAnimation, byte[] data, String mimeType) { }
 }
